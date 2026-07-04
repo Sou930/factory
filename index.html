@@ -18,8 +18,13 @@
 
 <!-- ===== 上部HUD ===== -->
 <header id="hud-top">
-  <div id="money-display" class="hud-chip">
-    <i class="fa-solid fa-coins"></i><span id="money-value">0</span>
+  <div id="hud-left">
+    <div id="money-display" class="hud-chip">
+      <i class="fa-solid fa-coins"></i><span id="money-value">0</span>
+    </div>
+    <div id="power-display" class="hud-chip">
+      <i class="fa-solid fa-bolt"></i><span id="power-value">0/0</span>
+    </div>
   </div>
   <div id="hud-top-right">
     <button id="btn-scan" class="hud-btn" title="鉱脈探知" aria-label="鉱脈探知">
@@ -80,6 +85,9 @@
   <button class="tool-btn" data-tool="seller">
     <span class="tool-icon">💰</span><span class="tool-name">販売機</span><span class="tool-cost">$80</span>
   </button>
+  <button class="tool-btn" data-tool="generator">
+    <span class="tool-icon">⚡</span><span class="tool-name">発電機</span><span class="tool-cost">$180</span>
+  </button>
   <button class="tool-btn" data-tool="demolish">
     <span class="tool-icon">🧨</span><span class="tool-name">撤去</span><span class="tool-cost">50%返金</span>
   </button>
@@ -91,6 +99,17 @@
   </button>
 </nav>
 
+<!-- ===== 操作ステータス ===== -->
+<div id="status-strip" aria-live="polite">⛏️ 掘る: タイルを掘削 / 機械をタップで状態確認</div>
+
+<!-- ===== 機械コンテキスト操作 ===== -->
+<div id="machine-actions" class="hidden" aria-label="機械操作">
+  <button data-action="rotate">↻<span>回転</span></button>
+  <button data-action="move">↔<span>移動</span></button>
+  <button data-action="delete">🧨<span>削除</span></button>
+  <button data-action="close">×<span>閉じる</span></button>
+</div>
+
 <!-- ===== トースト通知 ===== -->
 <div id="toast-area" aria-live="polite"></div>
 
@@ -100,14 +119,15 @@
     <h1>⛏️ TerraForge <small>遊び方</small></h1>
     <section>
       <h2>🎯 目的</h2>
-      <p>地面を掘って鉱脈を見つけ、機械で <b>採掘 → 運搬 → 精錬 → 売却</b> の自動化ラインを作ってお金を稼ごう!(所持金 $500 からスタート)<br>累計収益が一定額に達すると <b>🏆 実績ボーナス</b>がもらえるぞ!</p>
+      <p>地面を掘って無限鉱脈を見つけ、発電機で電力を確保しながら機械で <b>採掘 → 運搬 → 精錬 → 売却</b> の自動化ラインを作ってお金を稼ごう!(所持金 $500 からスタート)<br>累計収益が一定額に達すると <b>🏆 実績ボーナス</b>がもらえるぞ!</p>
     </section>
     <section>
       <h2>📋 手順</h2>
       <ol>
         <li><b>⛏️ 掘る</b>でタイルをタップして掘り下げる(最大3段)。鉱石が見つかる!<br>🔍 探知ボタンでカメラ周辺の鉱脈の場所と深さが見える</li>
-        <li>露出した鉱石の上に <b>🛠️ ドリル</b> を設置(自動採掘)</li>
+        <li>露出した鉱石の上に <b>🛠️ ドリル</b> を設置(自動採掘)。鉱脈は枯れないが、売値は控えめ</li>
         <li><b>➡️ コンベア</b>で鉱石を運ぶ。精錬炉・販売機・他のコンベアなど接続できる機械の近くに設置すると<b>自動でその方向へ曲がって接続</b>される。狙った向きにしたい時は「向き」ボタンで回転</li>
+        <li><b>⚡ 発電機</b>を置いて電力を確保。電力不足だとドリルと精錬炉が停止する</li>
         <li><b>🔥 精錬炉</b>で鉱石をインゴットに(売値UP!)</li>
         <li><b>💰 販売機</b>に流し込むとお金に変わる</li>
       </ol>
@@ -115,12 +135,12 @@
     <section>
       <h2>💎 鉱石と売値</h2>
       <p>
-        ⚫ 石炭(深さ1) 鉱石$3 → インゴット$10<br>
-        ⚙️ 鉄(深さ1) 鉱石$4 → インゴット$15<br>
-        🟠 銅(深さ2) 鉱石$8 → インゴット$32<br>
-        🥈 銀(深さ2) 鉱石$12 → インゴット$48<br>
-        ✨ 金(深さ3) 鉱石$20 → インゴット$80<br>
-        💎 ダイヤ(深さ3) 鉱石$35 → インゴット$140
+        ⚫ 石炭(深さ1) 鉱石$1 → インゴット$4<br>
+        ⚙️ 鉄(深さ1) 鉱石$2 → インゴット$6<br>
+        🟠 銅(深さ2) 鉱石$4 → インゴット$14<br>
+        🥈 銀(深さ2) 鉱石$6 → インゴット$20<br>
+        ✨ 金(深さ3) 鉱石$10 → インゴット$34<br>
+        💎 ダイヤ(深さ3) 鉱石$18 → インゴット$60
       </p>
     </section>
     <section>
@@ -129,7 +149,8 @@
         <b>🔀 分岐器</b>:背面から来たアイテムを正面・左・右の3方向に順番に振り分ける<br>
         <b>🔗 合流機</b>:背面・左・右から来たアイテムを1本の出力にまとめる<br>
         <b>📦 チェスト</b>:アイテムを保管(最大300個)。<b>「掘る」ツール</b>でタップすると中身をまとめて売却できる。向いている方向に少しずつ自動排出もされる<br>
-        <b>🎯 フィルターコンベア</b>:指定した鉱石だけを通す特殊コンベア。下の「品目」ボタンで設置前に種類を選択でき、設置後も同じツールで再タップすれば切替できる
+        <b>🎯 フィルター</b>:指定した鉱石は正面へ、不一致アイテムは左右へ分岐する3方向ソーター。下の「品目」ボタンで対象を選べる<br>
+        <b>⚡ 発電機</b>:12電力を供給。ドリルは2、精錬炉は4電力を消費する
       </p>
     </section>
     <section>
@@ -140,7 +161,7 @@
       <h2>🎮 操作</h2>
       <p>
         <b>タップ</b>:ツールを使う / <b>1本指ドラッグ</b>:マップ移動(指を離すと慣性でスッと止まる)<br>
-        <b>設置済みの機械を長押し</b>:その場で向きを90°回転(コンベアや分岐器・ドリルなどに便利)<br>
+        <b>設置済みの機械を長押し</b>:機械の上に「回転・移動・削除」ボタンを表示<br>
         <b>ピンチ</b>:ズーム / <b>右のパッド</b>:視点回転・角度・ズーム(なめらかに動きます)<br>
         PC:マウスホバーで設置マス確認、矢印キー=視点、<b>WASD=移動</b>、+/-=ズーム<br>
         <b>「掘る」ツールで機械をタップ</b>:ドリル・精錬炉・合流機の状態を確認(チェストは中身を売却)<br>

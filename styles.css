@@ -40,7 +40,8 @@ html, body {
 }
 .hud-chip i { font-size: 15px; }
 
-#hud-top-right { display: flex; gap: 8px; }
+#hud-left, #hud-top-right { display: flex; gap: 8px; align-items: center; }
+#power-display.power-low { color: #ff9d9d; border-color: rgba(255, 110, 110, .55); }
 
 .hud-btn {
   width: 42px; height: 42px;
@@ -127,6 +128,63 @@ html, body {
 .tool-cost { font-size: 9px; color: #8fa8d5; font-weight: 500; }
 .tool-btn.selected .tool-cost { color: #ffd9a0; }
 
+
+/* ===== 操作ステータス ===== */
+#status-strip {
+  position: fixed;
+  left: 50%;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 20px);
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(10, 16, 30, 0.78);
+  border: 1px solid rgba(140, 180, 255, 0.24);
+  color: #cfe0ff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(7px);
+  z-index: 21;
+  pointer-events: none;
+}
+#status-strip.good { color: #b8ffcb; border-color: rgba(120, 230, 150, .45); }
+#status-strip.warn { color: #ffd59d; border-color: rgba(255, 190, 90, .5); }
+#status-strip.error { color: #ffb4b4; border-color: rgba(255, 110, 110, .55); }
+
+
+/* ===== 機械コンテキスト操作 ===== */
+#machine-actions {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -120%);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(8, 14, 28, 0.9);
+  border: 1px solid rgba(140, 180, 255, 0.32);
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  backdrop-filter: blur(8px);
+  z-index: 45;
+}
+#machine-actions.hidden { display: none; }
+#machine-actions button {
+  width: 58px; height: 54px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  border-radius: 14px;
+  border: 1px solid rgba(140, 180, 255, 0.25);
+  background: rgba(28, 42, 72, 0.94);
+  color: #e7efff;
+  font-family: inherit; font-weight: 800; font-size: 19px;
+}
+#machine-actions button span { font-size: 10px; }
+#machine-actions button:active { transform: scale(.94); background: rgba(70, 110, 190, .9); }
+
 /* ===== トースト ===== */
 #toast-area {
   position: fixed;
@@ -198,6 +256,7 @@ html, body {
 
 /* ===== レスポンシブ調整 ===== */
 @media (max-width: 700px) {
+  #status-strip { bottom: calc(84px + env(safe-area-inset-bottom)); font-size: 11px; max-width: calc(100vw - 16px); }
   .cam-btn { width: 42px; height: 42px; font-size: 15px; }
   #camera-pad-mid { gap: 26px; }
   .hud-chip { font-size: 15px; padding: 7px 13px; }
