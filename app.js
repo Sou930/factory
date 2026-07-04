@@ -13,7 +13,7 @@ const LH = 0.62;              // 1層の深さ(world units)
 const MAX_DEPTH = 4;          // 掘れる最大深さ(4段目に最深部の鉱石)
 const ELEV_MAX = 3;           // 地形の最大標高(段)
 const START_MONEY = 500;      // 初期所持金
-const SAVE_KEY = 'terraforge_save_v5'; // 無限鉱脈+電力システムでセーブ形式を更新
+const SAVE_KEY = 'terraforge_save_v6'; // 地形盛土/電力範囲/自動工房追加でセーブ形式を更新
 
 const ORES = {
   coal:    { name: '石炭',     depth: 1, color: 0x4b515f, ingotColor: 0x7c869c, oreValue: 1,  ingotValue: 4,   plateValue: 11,   amount: Infinity },
@@ -26,9 +26,10 @@ const ORES = {
   mithril: { name: 'ミスリル', depth: 4, color: 0x4fe8b8, ingotColor: 0xb8ffe6, oreValue: 42, ingotValue: 145, plateValue: 435,  amount: Infinity },
 };
 
-const COSTS = { drill: 50, drill2: 220, conveyor: 10, fastConveyor: 25, smelter: 120, press: 250, seller: 80, splitter: 90, merger: 90, chest: 60, filterConveyor: 30, generator: 180 };
+const COSTS = { drill: 50, drill2: 220, conveyor: 10, fastConveyor: 25, smelter: 120, press: 250, autoCrafter: 320, seller: 80, splitter: 90, merger: 90, chest: 60, filterConveyor: 30, generator: 180 };
 const POWER_OUTPUT = { generator: 12 };
-const POWER_USE = { drill: 2, smelter: 4, press: 5, conveyor: 0, filterConveyor: 0, splitter: 0, merger: 0, chest: 0, seller: 0 };
+const POWER_RANGE = 7; // 発電機が電気を送れる範囲(タイル)
+const POWER_USE = { drill: 2, drill2: 3, smelter: 4, press: 5, autoCrafter: 6, conveyor: 0, fastConveyor: 0, filterConveyor: 0, splitter: 0, merger: 0, chest: 0, seller: 0 };
 const DIRS = [ {x:1,z:0}, {x:0,z:1}, {x:-1,z:0}, {x:0,z:-1} ]; // E S W N
 const DIR_ARROWS = ['→','↓','←','↑'];
 
@@ -38,6 +39,19 @@ const DRILL_INTERVAL = 2.4;   // sec(ドリル)
 const DRILL2_INTERVAL = 1.1;  // sec(ドリルMk2 = 約2.2倍速)
 const SMELT_TIME = 2.6;       // sec(精錬)
 const PRESS_TIME = 3.2;       // sec(プレス加工)
+
+const CHEST_UPGRADE_RULES = [
+  { from: 'drill', to: 'drill2', label: 'ドリルMk2', needs: { iron_i: 20, copper_i: 12, silver_i: 6 } },
+  { from: 'conveyor', to: 'fastConveyor', label: '高速コンベア', needs: { iron_i: 8, copper_i: 8 } },
+  { from: 'smelter', to: 'autoCrafter', label: '自動工房', needs: { gold_i: 10, diamond_i: 4, mithril_i: 2 } },
+];
+
+const AUTOCRAFT_RECIPES = [
+  { id: 'wire', name: '導線コイル', time: 3.0, value: 95, inputs: { copper_i: 2, iron_i: 1 } },
+  { id: 'board', name: '制御基板', time: 4.2, value: 220, inputs: { copper_i: 2, silver_i: 1, gold_i: 1 } },
+  { id: 'unit', name: '掘削ユニット', time: 4.8, value: 320, inputs: { iron_i: 2, coal_o: 2, mithril_i: 1 } },
+  { id: 'alloy', name: '高密度合金', time: 5.2, value: 460, inputs: { gold_i: 1, diamond_i: 1, ruby_i: 1 } },
+];
 
 /* ---------------- 状態 ---------------- */
 let money = START_MONEY;
@@ -419,11 +433,12 @@ const GEO_DRILL_PISTON = new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8);
 const GEO_DRILL_LIGHT  = new THREE.SphereGeometry(0.08, 8, 8);
 const GEO_INDICATOR    = new THREE.SphereGeometry(0.1, 8, 8);
 
-function buildDrillMesh() {
+function buildDrillMesh(tier) {
   const g = new THREE.Group();
-  const baseMat  = sharedMat('drillBase',  () => new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: .6, map: stripeTexture }));
-  const legMat   = sharedMat('drillLeg',   () => new THREE.MeshStandardMaterial({ color: 0x333c48, roughness: .7, metalness: .3 }));
-  const towerMat = sharedMat('drillTower', () => new THREE.MeshStandardMaterial({ color: 0xd9822b, roughness: .5 }));
+  const mk2 = tier === 2;
+  const baseMat  = sharedMat(mk2 ? 'drill2Base' : 'drillBase',  () => new THREE.MeshStandardMaterial({ color: mk2 ? 0x2b3f5d : 0x4a5568, roughness: .6, map: stripeTexture }));
+  const legMat   = sharedMat(mk2 ? 'drill2Leg' : 'drillLeg',   () => new THREE.MeshStandardMaterial({ color: mk2 ? 0x233145 : 0x333c48, roughness: .7, metalness: .3 }));
+  const towerMat = sharedMat(mk2 ? 'drill2Tower' : 'drillTower', () => new THREE.MeshStandardMaterial({ color: mk2 ? 0x43a7ff : 0xd9822b, roughness: .5 }));
   const bitMat   = sharedMat('drillBit',   () => new THREE.MeshStandardMaterial({ color: 0x99a3b5, metalness: .8, roughness: .3 }));
   const pipeMat  = sharedMat('drillPipe',  () => new THREE.MeshStandardMaterial({ color: 0x1c2430, metalness: .6, roughness: .4 }));
   const outMat   = sharedMat('drillOut',   () => new THREE.MeshStandardMaterial({ color: 0x2d3748 }));
@@ -455,6 +470,14 @@ function buildDrillMesh() {
 
   const light = new THREE.Mesh(GEO_DRILL_LIGHT, lightMat);
   light.position.set(0, 1.5, 0.3); g.add(light);
+
+  if (mk2) {
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 8, 20), sharedMat('drill2Halo', () => new THREE.MeshStandardMaterial({ color: 0x74c4ff, emissive: 0x1b5aa6, emissiveIntensity: 0.45, metalness: .4, roughness: .3 })));
+    halo.position.set(0, 1.26, 0);
+    halo.rotation.x = Math.PI / 2;
+    g.add(halo);
+    g.userData.halo = halo;
+  }
 
   g.userData.piston = piston;
   g.userData.warnLight = light;
@@ -645,6 +668,7 @@ function buildGeneratorMesh() {
   const baseMat = sharedMat('genBase', () => new THREE.MeshStandardMaterial({ color: 0x334155, roughness: .55, metalness: .2 }));
   const coilMat = sharedMat('genCoil', () => new THREE.MeshStandardMaterial({ color: 0xffc23e, emissive: 0xff8c00, emissiveIntensity: .35, roughness: .35 }));
   const poleMat = sharedMat('genPole', () => new THREE.MeshStandardMaterial({ color: 0x8b95ab, metalness: .6, roughness: .3 }));
+  const rangeMat = sharedMat('genRange', () => new THREE.MeshBasicMaterial({ color: 0x7ec8ff, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
   const base = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.55, 1.25), baseMat);
   base.position.y = 0.28; base.castShadow = true; base.receiveShadow = true; g.add(base);
   const coil = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.08, 10, 20), coilMat);
@@ -653,6 +677,28 @@ function buildGeneratorMesh() {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.65, 8), poleMat);
     pole.position.set(x, 0.78, 0); pole.castShadow = true; g.add(pole);
   }
+  const range = new THREE.Mesh(new THREE.RingGeometry(POWER_RANGE * TS - 0.1, POWER_RANGE * TS + 0.1, 52), rangeMat);
+  range.rotation.x = -Math.PI / 2;
+  range.position.y = 0.04;
+  range.name = 'range';
+  g.add(range);
+  return g;
+}
+
+function buildAutoCrafterMesh() {
+  const g = new THREE.Group();
+  const bodyMat = sharedMat('autoCrafterBody', () => new THREE.MeshStandardMaterial({ color: 0x2c3f5f, roughness: .55, metalness: .25 }));
+  const trimMat = sharedMat('autoCrafterTrim', () => new THREE.MeshStandardMaterial({ color: 0x4a618b, roughness: .4, metalness: .4 }));
+  const coreMat = sharedMat('autoCrafterCore', () => new THREE.MeshStandardMaterial({ color: 0x7ec8ff, emissive: 0x245a96, emissiveIntensity: .5, roughness: .25, metalness: .2 }));
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.0, 1.7), bodyMat);
+  body.position.y = 0.5; body.castShadow = true; g.add(body);
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 1.8), trimMat);
+  trim.position.y = 1.03; g.add(trim);
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.25), coreMat);
+  core.position.y = 1.28; core.name = 'core'; g.add(core);
+  addPortArrow(g, 0, 'out', 0xffc23e, 0.35);
+  addPortPad(g, -0.8, 0, 0x66d9ff, 'input');
+  g.userData.core = core;
   return g;
 }
 
@@ -746,14 +792,36 @@ function updateFilterGem(m) {
   if (!gem) return;
   gem.material.color.setHex(m.filter && ORES[m.filter] ? ORES[m.filter].color : 0xffffff);
 }
-const MESH_BUILDERS = { drill: buildDrillMesh, conveyor: () => buildConveyorMeshShaped('straight'), smelter: buildSmelterMesh, seller: buildSellerMesh, splitter: buildSplitterMesh, merger: buildMergerMesh, chest: buildChestMesh, filterConveyor: () => buildFilterConveyorMeshShaped('straight'), generator: buildGeneratorMesh };
+const MESH_BUILDERS = {
+  drill: () => buildDrillMesh(1),
+  drill2: () => buildDrillMesh(2),
+  conveyor: () => buildConveyorMeshShaped('straight'),
+  fastConveyor: () => buildConveyorMeshShaped('straight'),
+  smelter: buildSmelterMesh,
+  autoCrafter: buildAutoCrafterMesh,
+  seller: buildSellerMesh,
+  splitter: buildSplitterMesh,
+  merger: buildMergerMesh,
+  chest: buildChestMesh,
+  filterConveyor: () => buildFilterConveyorMeshShaped('straight'),
+  generator: buildGeneratorMesh,
+};
+
+function applyFastConveyorTint(mesh) {
+  if (!mesh || mesh.userData.fastTinted) return;
+  mesh.traverse(o => {
+    if (o.isMesh && o.material && o.material.color) o.material = o.material.clone();
+    if (o.isMesh && o.material && o.material.color) o.material.color.offsetHSL(0.06, 0.02, 0.08);
+  });
+  mesh.userData.fastTinted = true;
+}
 
 /* ---------------- 機械ロジック ---------------- */
 function placeMachine(type, gx, gz, dir, silent) {
   if (!inGrid(gx, gz) || machines.has(key(gx, gz))) { if (!silent) toast('そこには置けないよ', 'error'); return false; }
   const t = tiles[gx][gz];
   // ロード時(silent)は露出チェックをスキップ
-  if (type === 'drill' && !silent) {
+  if ((type === 'drill' || type === 'drill2') && !silent) {
     const exposed = t.ore && ORES[t.ore.type].depth === t.depth;
     if (!exposed) { toast('ドリルは露出した鉱石の上に設置!', 'error'); return false; }
   }
@@ -762,7 +830,7 @@ function placeMachine(type, gx, gz, dir, silent) {
 
   // 通常コンベア/フィルターコンベアは、近くの接続可能な機械へ自動で向きを合わせる(曲がる)
   let placeDir = dir;
-  if (!silent && (type === 'conveyor' || type === 'filterConveyor')) {
+  if (!silent && (type === 'conveyor' || type === 'fastConveyor' || type === 'filterConveyor')) {
     placeDir = chooseAutoDir(gx, gz, dir);
   }
 
@@ -777,9 +845,11 @@ function placeMachine(type, gx, gz, dir, silent) {
     rejectIndex: 0,                                     // フィルター分岐の不一致出力切替
     storage: {}, cap: 300,                              // チェスト用の保管庫
     filter: type === 'filterConveyor' ? selectedFilter : undefined, // フィルターコンベア用の対象鉱石
+    craftStock: {}, craftRecipe: null, craftProgress: 0,             // 自動工房用
   };
   machines.set(key(gx, gz), m);
   if (type === 'filterConveyor') updateFilterGem(m);
+  if (type === 'fastConveyor') applyFastConveyorTint(m.mesh);
   refreshTile(gx, gz);
   if (!silent) {
     tryAutoConnectNeighbors(gx, gz); // 周囲の行き先を見失っているコンベアをこの新しい機械へ自動接続
@@ -811,7 +881,13 @@ function removeMachine(gx, gz) {
 }
 
 function toolLabel(t) {
-  return { dig: '掘削', drill: 'ドリル', conveyor: 'コンベア', smelter: '精錬炉', seller: '販売機', demolish: '撤去', splitter: '分岐器', merger: '合流機', chest: 'チェスト', filterConveyor: 'フィルターコンベア', generator: '発電機' }[t] || t;
+  return {
+    dig: '掘削', fill: '盛土', drill: 'ドリル', drill2: 'ドリルMk2',
+    conveyor: 'コンベア', fastConveyor: '高速コンベア',
+    smelter: '精錬炉', autoCrafter: '自動工房', seller: '販売機',
+    demolish: '撤去', splitter: '分岐器', merger: '合流機',
+    chest: 'チェスト', filterConveyor: 'フィルターコンベア', generator: '発電機'
+  }[t] || t;
 }
 
 /* ---------------- アイテム ---------------- */
@@ -837,7 +913,7 @@ function spawnItem(oreType, ingot, gx, gz) {
   const y = tileTopY(gx, gz) + 0.35;
   mesh.position.set(worldX(gx), y, worldZ(gz));
   scene.add(mesh);
-  return { oreType, ingot, mesh, gx, gz, moving: false, t: 0, from: null, to: null };
+  return { oreType, ingot, mesh, gx, gz, moving: false, t: 0, from: null, to: null, moveSpeed: CONVEYOR_SPEED };
 }
 function destroyItem(it) {
   scene.remove(it.mesh);
@@ -854,14 +930,73 @@ function heightOk(gx1, gz1, gx2, gz2) {
   return Math.abs(l1 - l2) <= 1;
 }
 function chestTotal(m) {
+  return stockTotal(m.storage);
+}
+function stockTotal(stock) {
   let sum = 0;
-  for (const k in m.storage) sum += m.storage[k];
+  for (const k in stock) sum += stock[k];
   return sum;
+}
+function formatStockKey(k) {
+  const ingot = k.endsWith('_i');
+  const oreType = k.slice(0, -2);
+  return (ORES[oreType] ? ORES[oreType].name : oreType) + (ingot ? 'インゴット' : '鉱石');
+}
+function hasStock(stock, needs) {
+  for (const k in needs) if ((stock[k] || 0) < needs[k]) return false;
+  return true;
+}
+function consumeStock(stock, needs) {
+  for (const k in needs) {
+    stock[k] = (stock[k] || 0) - needs[k];
+    if (stock[k] <= 0) delete stock[k];
+  }
+}
+function findChestUpgradeRule(targetType) {
+  return CHEST_UPGRADE_RULES.find(r => r.from === targetType) || null;
+}
+function replaceMachineType(m, newType) {
+  if (!m || m.type === newType || !MESH_BUILDERS[newType]) return false;
+  if (m.item || m.incoming > 0 || m.processing) return false;
+  const oldMesh = m.mesh;
+  const nm = MESH_BUILDERS[newType]();
+  nm.position.copy(oldMesh.position);
+  nm.rotation.copy(oldMesh.rotation);
+  scene.remove(oldMesh);
+  scene.add(nm);
+  m.mesh = nm;
+  m.type = newType;
+  m.timer = 0;
+  if (newType === 'filterConveyor' && !m.filter) m.filter = selectedFilter;
+  if (newType === 'fastConveyor') applyFastConveyorTint(m.mesh);
+  if (newType === 'autoCrafter') {
+    m.craftStock = m.craftStock || {};
+    m.craftRecipe = null;
+    m.craftProgress = 0;
+  }
+  refreshTile(m.gx, m.gz);
+  rebuildBeltsAround(m.gx, m.gz);
+  markPowerDirty();
+  updatePowerStatus(true);
+  return true;
+}
+function tryChestUpgrade(chest) {
+  const tx = chest.gx + DIRS[chest.dir].x;
+  const tz = chest.gz + DIRS[chest.dir].z;
+  const target = machines.get(key(tx, tz));
+  if (!target) return null;
+  const rule = findChestUpgradeRule(target.type);
+  if (!rule) return null;
+  if (!hasStock(chest.storage, rule.needs)) return { ok: false, rule };
+  if (!replaceMachineType(target, rule.to)) return { ok: false, rule };
+  consumeStock(chest.storage, rule.needs);
+  toast('⬆️ チェスト素材で ' + toolLabel(rule.to) + ' にアップグレード!', 'good');
+  return { ok: true, rule, target };
 }
 
 /* ---------------- コンベアの自動接続(曲げ) ---------------- */
 // 向きを合わせれば接続を受け取れる可能性がある機械の種類
-const ACCEPT_TYPES = new Set(['conveyor', 'filterConveyor', 'splitter', 'merger', 'smelter', 'seller', 'chest']);
+const ACCEPT_TYPES = new Set(['conveyor', 'fastConveyor', 'filterConveyor', 'splitter', 'merger', 'smelter', 'autoCrafter', 'seller', 'chest']);
 function isAcceptCapable(type) { return ACCEPT_TYPES.has(type); }
 
 /* 機械がアイテムを送り出す方向の一覧(販売機は消費するだけで出力なし) */
@@ -927,7 +1062,7 @@ function tryAutoConnectNeighbors(gx, gz) {
     const nx = gx + DIRS[k].x, nz = gz + DIRS[k].z;
     if (!inGrid(nx, nz)) continue;
     const nb = machines.get(key(nx, nz));
-    if (!nb || (nb.type !== 'conveyor' && nb.type !== 'filterConveyor')) continue;
+    if (!nb || (nb.type !== 'conveyor' && nb.type !== 'fastConveyor' && nb.type !== 'filterConveyor')) continue;
     const dirToNew = (k + 2) % 4; // このコンベアから見て新しい機械がある向き
     const curTx = nb.gx + DIRS[nb.dir].x, curTz = nb.gz + DIRS[nb.dir].z;
     const curTarget = machines.get(key(curTx, curTz));
@@ -1005,7 +1140,7 @@ function addGradeOverlays(m) {
 }
 
 function rebuildBeltMesh(m) {
-  if (m.type !== 'conveyor' && m.type !== 'filterConveyor') return;
+  if (m.type !== 'conveyor' && m.type !== 'fastConveyor' && m.type !== 'filterConveyor') return;
   const shape = m.type === 'filterConveyor' ? 'filter3' : beltShapeFor(m);
   if (m.mesh && m.mesh.userData.beltShape === shape) {
     m.mesh.rotation.y = -m.dir * Math.PI / 2; // 向きだけ変わった場合の同期
@@ -1013,13 +1148,14 @@ function rebuildBeltMesh(m) {
     return;
   }
   const old = m.mesh;
-  const nm = m.type === 'conveyor' ? buildConveyorMeshShaped(shape) : buildFilterConveyorMeshShaped();
+  const nm = (m.type === 'conveyor' || m.type === 'fastConveyor') ? buildConveyorMeshShaped(shape) : buildFilterConveyorMeshShaped();
   nm.position.copy(old.position);
   nm.rotation.y = -m.dir * Math.PI / 2;
   scene.remove(old);
   scene.add(nm);
   m.mesh = nm;
   if (m.type === 'filterConveyor') updateFilterGem(m);
+  if (m.type === 'fastConveyor') applyFastConveyorTint(m.mesh);
   addGradeOverlays(m);
 }
 function rebuildBeltsAround(gx, gz) {
@@ -1035,9 +1171,10 @@ function rebuildBeltsAround(gx, gz) {
 function canAccept(m, it, fromGx, fromGz) {
   if (!m) return false;
   if (!connectionOk(m, fromGx, fromGz)) return false; // 高低差・逆流を禁止
-  if (m.type === 'conveyor' || m.type === 'splitter') return !m.item;
+  if (m.type === 'conveyor' || m.type === 'fastConveyor' || m.type === 'splitter') return !m.item;
   if (m.type === 'filterConveyor') return !m.item;
   if (m.type === 'smelter') return !it.ingot && m.buffer.length + m.incoming < 2; // 移動中の分も数えて溢れ防止
+  if (m.type === 'autoCrafter') return stockTotal(m.craftStock || {}) + m.incoming < 40;
   if (m.type === 'merger') return m.buffer.length + m.incoming < 4;
   if (m.type === 'chest') return chestTotal(m) + m.incoming < m.cap;
   if (m.type === 'seller') return true;
@@ -1045,14 +1182,15 @@ function canAccept(m, it, fromGx, fromGz) {
 }
 
 /* item を機械 m のセルへ送る(占有処理込み) */
-function sendItemTo(it, m) {
+function sendItemTo(it, m, moveSpeed) {
   it.from = it.mesh.position.clone();
   it.to = new THREE.Vector3(worldX(m.gx), tileTopY(m.gx, m.gz) + 0.35, worldZ(m.gz));
   it.t = 0;
   it.moving = true;
   it.destKey = key(m.gx, m.gz);
-  if (m.type === 'conveyor' || m.type === 'splitter' || m.type === 'filterConveyor') m.item = it; // 予約
-  else if (m.type === 'smelter' || m.type === 'merger' || m.type === 'chest') m.incoming++;       // 到着前の予約数
+  it.moveSpeed = moveSpeed || CONVEYOR_SPEED;
+  if (m.type === 'conveyor' || m.type === 'fastConveyor' || m.type === 'splitter' || m.type === 'filterConveyor') m.item = it; // 予約
+  else if (m.type === 'smelter' || m.type === 'autoCrafter' || m.type === 'merger' || m.type === 'chest') m.incoming++;       // 到着前の予約数
 }
 
 function arriveItem(it) {
@@ -1060,7 +1198,7 @@ function arriveItem(it) {
   const m = machines.get(it.destKey);
   if (!m) { destroyItem(it); return; }
   it.gx = m.gx; it.gz = m.gz;
-  if ((m.type === 'smelter' || m.type === 'merger' || m.type === 'chest') && m.incoming > 0) m.incoming--;
+  if ((m.type === 'smelter' || m.type === 'autoCrafter' || m.type === 'merger' || m.type === 'chest') && m.incoming > 0) m.incoming--;
   if (m.type === 'seller') {
     const v = itemValue(it);
     earn(v);
@@ -1073,6 +1211,10 @@ function arriveItem(it) {
     destroyItem(it);
   } else if (m.type === 'smelter') {
     m.buffer.push({ oreType: it.oreType });
+    destroyItem(it);
+  } else if (m.type === 'autoCrafter') {
+    const sk = it.oreType + (it.ingot ? '_i' : '_o');
+    m.craftStock[sk] = (m.craftStock[sk] || 0) + 1;
     destroyItem(it);
   } else if (m.type === 'merger') {
     m.buffer.push({ oreType: it.oreType, ingot: it.ingot });
@@ -1123,33 +1265,50 @@ function updateParticles(dt) {
 
 
 function markPowerDirty() { powerDirty = true; }
+function inPowerRangeOfAnyGenerator(m) {
+  for (const g of machines.values()) {
+    if (g.type !== 'generator') continue;
+    if (Math.hypot(m.gx - g.gx, m.gz - g.gz) <= POWER_RANGE) return true;
+  }
+  return false;
+}
 function updatePowerStatus(force) {
   if (!force && !powerDirty) return;
-  let capacity = 0, used = 0;
+  let capacity = 0, used = 0, outOfRange = 0;
   for (const m of machines.values()) {
-    capacity += POWER_OUTPUT[m.type] || 0;
-    used += POWER_USE[m.type] || 0;
+    if (m.type === 'generator') capacity += POWER_OUTPUT.generator;
+  }
+  for (const m of machines.values()) {
+    const use = POWER_USE[m.type] || 0;
+    if (!use) continue;
+    if (!inPowerRangeOfAnyGenerator(m)) { outOfRange++; continue; }
+    used += use;
   }
   powerDirty = false;
-  power = { used, capacity, ok: used <= capacity };
+  power = { used, capacity, outOfRange, ok: used <= capacity };
   const el = document.getElementById('power-value');
   const box = document.getElementById('power-display');
   if (el) el.textContent = used + '/' + capacity;
   if (box) {
-    box.classList.toggle('power-low', !power.ok);
-    box.title = power.ok ? '電力: 使用量 / 発電量' : '電力不足: ドリルと精錬炉が停止中';
+    box.classList.toggle('power-low', !power.ok || power.outOfRange > 0);
+    box.title = (!power.ok || power.outOfRange > 0)
+      ? ('電力不足/圏外: 使用' + used + ' / 発電' + capacity + ' / 圏外機械' + power.outOfRange + '台')
+      : ('電力: 使用量 / 発電量 (供給範囲 ' + POWER_RANGE + 'マス)');
   }
   updateStatus();
 }
 function hasPowerFor(m) {
-  return (POWER_USE[m.type] || 0) === 0 || power.ok;
+  const need = POWER_USE[m.type] || 0;
+  if (need === 0) return true;
+  if (!inPowerRangeOfAnyGenerator(m)) return false;
+  return power.ok;
 }
 
 /* ---------------- 更新ループ ---------------- */
 function updateMachines(dt) {
   updatePowerStatus(false);
   for (const m of machines.values()) {
-    if (m.type === 'drill') {
+    if (m.type === 'drill' || m.type === 'drill2') {
       if (!hasPowerFor(m)) { const warnLight = m.mesh.userData.warnLight; if (warnLight) warnLight.material.emissiveIntensity = 1.1; continue; }
       const bit = m.mesh.getObjectByName('bit');
       const piston = m.mesh.userData.piston;
@@ -1157,10 +1316,13 @@ function updateMachines(dt) {
       const t = tiles[m.gx][m.gz];
       const hasOre = t.ore && ORES[t.ore.type].depth === t.depth;
       if (hasOre) {
-        const bob = Math.sin(time * 6);
-        if (bit) { bit.rotation.y += dt * 9; bit.position.y = 0.42 + bob * 0.07; }
+        const speedMul = m.type === 'drill2' ? 1.5 : 1;
+        const bob = Math.sin(time * 6 * speedMul);
+        if (bit) { bit.rotation.y += dt * 9 * speedMul; bit.position.y = 0.42 + bob * 0.07; }
         if (piston) piston.scale.y = 1 + bob * 0.12;
-        if (warnLight) warnLight.material.emissiveIntensity = 0.4 + Math.sin(time * 5) * 0.35;
+        if (warnLight) warnLight.material.emissiveIntensity = 0.4 + Math.sin(time * 5 * speedMul) * 0.35;
+        const halo = m.mesh.userData.halo;
+        if (halo) halo.rotation.z += dt * 2.6;
         // 掘削中の土煙パーティクル(採掘ビットの位置から時々発生)
         m.mesh.userData.dustTimer = (m.mesh.userData.dustTimer || 0) + dt;
         if (m.mesh.userData.dustTimer > 0.35) {
@@ -1168,7 +1330,8 @@ function updateMachines(dt) {
           spawnParticle('dust', new THREE.Vector3(worldX(m.gx), tileTopY(m.gx, m.gz) + 0.15, worldZ(m.gz)), { life: 0.6, scale: 0.35, vel: new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.6, (Math.random() - 0.5) * 0.6) });
         }
         m.timer += dt;
-        if (m.timer >= DRILL_INTERVAL) {
+        const interval = m.type === 'drill2' ? DRILL2_INTERVAL : DRILL_INTERVAL;
+        if (m.timer >= interval) {
           const outKey = key(m.gx + DIRS[m.dir].x, m.gz + DIRS[m.dir].z);
           const target = machines.get(outKey);
           const dummy = { oreType: t.ore.type, ingot: false };
@@ -1220,7 +1383,33 @@ function updateMachines(dt) {
         }
       } else if (fire) fire.material.color.set(0x772d10);
     }
-    else if (m.type === 'conveyor' || m.type === 'filterConveyor') {
+    else if (m.type === 'autoCrafter') {
+      if (!hasPowerFor(m)) continue;
+      const core = m.mesh.userData.core;
+      if (core) core.rotation.y += dt * 1.7;
+      if (!m.craftRecipe) {
+        const recipe = AUTOCRAFT_RECIPES.find(r => hasStock(m.craftStock, r.inputs));
+        if (recipe) {
+          consumeStock(m.craftStock, recipe.inputs);
+          m.craftRecipe = recipe;
+          m.craftProgress = 0;
+        }
+      }
+      if (m.craftRecipe) {
+        m.craftProgress += dt;
+        if (core) core.material.emissiveIntensity = 0.45 + Math.sin(time * 12) * 0.25;
+        if (m.craftProgress >= m.craftRecipe.time) {
+          earn(m.craftRecipe.value);
+          spawnFloater('📦+$' + m.craftRecipe.value, m.mesh.position.clone().add(new THREE.Vector3(0, 1.6, 0)), '#9fe4ff');
+          if (Math.random() < 0.35) toast('🏭 ' + m.craftRecipe.name + ' を出荷! +$' + m.craftRecipe.value, 'good');
+          m.craftRecipe = null;
+          m.craftProgress = 0;
+        }
+      } else if (core) {
+        core.material.emissiveIntensity = 0.3;
+      }
+    }
+    else if (m.type === 'conveyor' || m.type === 'fastConveyor' || m.type === 'filterConveyor') {
       // ベルト矢印アニメ(直線: 入口→出口 / カーブ: 入口→中心、中心→出口 と流れる)
       const cyc = (time * 1.1) % 1;
       const shape = m.mesh.userData.beltShape || 'straight';
@@ -1237,8 +1426,9 @@ function updateMachines(dt) {
       }
       // ローラー回転アニメ(ベルトが実際に動いているように見せる)
       const rollers = m.mesh.userData.rollers;
+      const rollSpeed = m.type === 'fastConveyor' ? 11 : 6;
       if (rollers) for (const r of rollers) {
-        if (r.userData.spinAxis === 'z') r.rotation.z += dt * 6; else r.rotation.x += dt * 6;
+        if (r.userData.spinAxis === 'z') r.rotation.z += dt * rollSpeed; else r.rotation.x += dt * rollSpeed;
       }
       // フィルターコンベアの宝石をゆっくり回転
       const gem = m.mesh.getObjectByName('filterGem');
@@ -1258,7 +1448,7 @@ function updateMachines(dt) {
             const it = m.item;
             m.item = null;
             if (m.type === 'filterConveyor' && outDirs.length > 1) m.rejectIndex = (idx + 1) % outDirs.length;
-            sendItemTo(it, next);
+            sendItemTo(it, next, m.type === 'fastConveyor' ? FAST_SPEED : CONVEYOR_SPEED);
             break;
           }
         }
@@ -1329,6 +1519,8 @@ function updateMachines(dt) {
       m.timer += dt;
       if (m.timer >= 0.8) {
         m.timer = 0;
+        const upgraded = tryChestUpgrade(m);
+        if (upgraded && upgraded.ok) continue;
         const stockKey = Object.keys(m.storage).find(k => m.storage[k] > 0);
         if (stockKey) {
           const outKey = key(m.gx + DIRS[m.dir].x, m.gz + DIRS[m.dir].z);
@@ -1342,7 +1534,7 @@ function updateMachines(dt) {
             const it = spawnItem(oreType, ingot, m.gx, m.gz);
             it.mesh.position.y += ingot ? 0.6 : 0.35;
             items.push(it);
-            sendItemTo(it, target);
+            sendItemTo(it, target, CONVEYOR_SPEED);
           }
         }
       }
@@ -1361,7 +1553,7 @@ function updateItems(dt) {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     if (it.moving) {
-      it.t += dt * CONVEYOR_SPEED;
+      it.t += dt * (it.moveSpeed || CONVEYOR_SPEED);
       if (it.t >= 1) { it.mesh.position.copy(it.to); arriveItem(it); }
       else {
         it.mesh.position.lerpVectors(it.from, it.to, it.t);
@@ -1468,10 +1660,11 @@ function updateHighlight(clientX, clientY) {
   highlightMesh.visible = true;
   let color = 0xffe066;
   if (tool === 'dig') color = 0x6fd8ff;
+  else if (tool === 'fill') color = (tiles[gx][gz].depth > 0 && !machines.has(key(gx, gz))) ? 0x9bde8e : 0xff6b6b;
   else if (tool === 'demolish') color = machines.has(key(gx, gz)) ? 0xff6b6b : 0x8fa0c0;
   else if (COSTS[tool] !== undefined) {
     let canPlace = !machines.has(key(gx, gz));
-    if (tool === 'drill') {
+    if (tool === 'drill' || tool === 'drill2') {
       const t = tiles[gx][gz];
       canPlace = canPlace && !!(t.ore && ORES[t.ore.type].depth === t.depth); // ドリルは露出鉱石の上のみ
     }
@@ -1544,7 +1737,7 @@ function hideMachineActions() {
 function canMoveMachineTo(m, gx, gz) {
   if (!m || !inGrid(gx, gz) || machines.has(key(gx, gz))) return false;
   if (m.item || m.incoming > 0 || m.processing) return false;
-  if (m.type === 'drill') {
+  if (m.type === 'drill' || m.type === 'drill2') {
     const t = tiles[gx][gz];
     return !!(t.ore && ORES[t.ore.type].depth === t.depth);
   }
@@ -1578,7 +1771,7 @@ if (actionMenu) actionMenu.addEventListener('click', e => {
 function rotateMachine(m) {
   m.dir = (m.dir + 1) % 4;
   m.mesh.rotation.y = -m.dir * Math.PI / 2;
-  if (m.type === 'conveyor' || m.type === 'filterConveyor') tryAutoConnectNeighbors(m.gx, m.gz);
+  if (m.type === 'conveyor' || m.type === 'fastConveyor' || m.type === 'filterConveyor') tryAutoConnectNeighbors(m.gx, m.gz);
   rebuildBeltsAround(m.gx, m.gz); // 回転で入出力が変わるので繋ぎ目形状を更新
   spawnFloater(DIR_ARROWS[m.dir], m.mesh.position.clone().add(new THREE.Vector3(0, 1.3, 0)), '#ffe066');
   toast(toolLabel(m.type) + 'の向きを変更: ' + DIR_ARROWS[m.dir], 'good');
@@ -1605,9 +1798,10 @@ function onTap(clientX, clientY) {
     if (existing) {
       if (existing.type === 'chest') { cashOutChest(existing); return; }
       // 「掘る」ツールで機械をタップすると状態を確認できる(完成度UP)
-      if (existing.type === 'drill') {
+      if (existing.type === 'drill' || existing.type === 'drill2') {
         const hasOre = t.ore && ORES[t.ore.type].depth === t.depth;
-        toast(hasOre ? '🛠️ ' + ORES[t.ore.type].name + 'を採掘中(無限鉱脈)' : '🛠️ 露出した鉱脈がありません', hasOre ? 'good' : 'error');
+        const label = existing.type === 'drill2' ? 'ドリルMk2' : 'ドリル';
+        toast(hasOre ? '🛠️ ' + label + ': ' + ORES[t.ore.type].name + 'を採掘中(無限鉱脈)' : '🛠️ ' + label + ': 露出した鉱脈がありません', hasOre ? 'good' : 'error');
         return;
       }
       if (existing.type === 'smelter') {
@@ -1615,7 +1809,12 @@ function onTap(clientX, clientY) {
         return;
       }
       if (existing.type === 'merger') { toast('🔗 合流待ち: ' + existing.buffer.length + '個', 'good'); return; }
-      if (existing.type === 'generator') { toast('⚡ 発電中: +' + POWER_OUTPUT.generator + ' 電力', 'good'); return; }
+      if (existing.type === 'autoCrafter') {
+        const crafting = existing.craftRecipe ? (existing.craftRecipe.name + ' ' + Math.floor((existing.craftProgress / existing.craftRecipe.time) * 100) + '%') : '待機中';
+        toast('🏭 自動工房: ' + crafting + ' / 在庫 ' + stockTotal(existing.craftStock) + '個', 'good');
+        return;
+      }
+      if (existing.type === 'generator') { toast('⚡ 発電中: +' + POWER_OUTPUT.generator + ' 電力 / 範囲 ' + POWER_RANGE + 'マス', 'good'); return; }
       toast('機械の下は掘れない!先に撤去してね', 'error'); return;
     }
     const exposed = t.ore && ORES[t.ore.type].depth === t.depth;
@@ -1643,6 +1842,15 @@ function onTap(clientX, clientY) {
       toast('💎 ' + ORES[t.ore.type].name + '無限鉱脈を発見!ドリルを置こう!', 'good');
       spawnFloater('💎発見!', new THREE.Vector3(worldX(gx), tileTopY(gx, gz) + 1.2, worldZ(gz)), '#7de8ff');
     }
+  }
+  else if (tool === 'fill') {
+    if (existing) { toast('機械の下は盛れない!先に撤去してね', 'error'); return; }
+    if (t.depth <= 0) { toast('これ以上は盛れない(元の地表)', 'error'); return; }
+    t.depth--;
+    sfx('dig');
+    refreshTile(gx, gz);
+    rebuildBeltsAround(gx, gz);
+    toast('🧱 土を盛って地面を1段上げた', 'good');
   }
   else if (tool === 'demolish') {
     if (!removeMachine(gx, gz)) toast('ここに機械はないよ', 'error');
@@ -1693,16 +1901,21 @@ function toolCostText(t) {
 }
 function baseStatusForTool(t) {
   if (t === 'dig') return '⛏️ 掘る: タイルを掘削 / 機械をタップで状態確認';
+  if (t === 'fill') return '🧱 盛る: 掘った地面を1段戻す';
   if (t === 'demolish') return '🧨 撤去: 機械を撤去して50%返金';
   if (t === 'filterConveyor') return '🎯 フィルター: 一致=正面 / 不一致=左右 / ' + FILTER_LABEL[selectedFilter];
   if (t === 'conveyor') return '➡️ コンベア: 近くの接続先へ自動接続 / ' + toolCostText(t);
-  if (t === 'generator') return '⚡ 発電機: +' + POWER_OUTPUT.generator + '電力 / ' + toolCostText(t);
+  if (t === 'generator') return '⚡ 発電機: +' + POWER_OUTPUT.generator + '電力 / 供給範囲 ' + POWER_RANGE + 'マス / ' + toolCostText(t);
+  if (t === 'autoCrafter') return '🏭 自動工房: 複数資源を自動合成して出荷 / ' + toolCostText(t);
   if (COSTS[t] !== undefined) return toolLabel(t) + ': ' + toolCostText(t) + ' / 向き ' + DIR_ARROWS[buildDir];
   return toolLabel(t);
 }
 function updateStatus(msg, kind) {
   if (msg) { setStatus(msg, kind); return; }
-  if (!power.ok) { setStatus('⚡ 電力不足: ' + power.used + '/' + power.capacity + '。発電機を追加するとドリル/精錬炉が再開します', 'error'); return; }
+  if (!power.ok || power.outOfRange > 0) {
+    setStatus('⚡ 電力状態: ' + power.used + '/' + power.capacity + ' (圏外 ' + (power.outOfRange || 0) + '台)。発電機の増設や配置調整で改善できます', 'error');
+    return;
+  }
   setStatus(baseStatusForTool(tool));
 }
 function describeConnectionPreview(gx, gz) {
@@ -1971,6 +2184,11 @@ function saveGame() {
     if (m.type === 'chest') rec.st = m.storage;
     if (m.type === 'merger' || m.type === 'smelter') rec.buf = m.buffer;   // 精錬炉の待ち行列も保存
     if (m.type === 'smelter' && m.processing) rec.pr = m.processing;       // 精錬中のアイテムも保存
+    if (m.type === 'autoCrafter') {
+      rec.cs = m.craftStock;
+      if (m.craftRecipe) rec.cr = m.craftRecipe.id;
+      if (m.craftProgress) rec.cp = m.craftProgress;
+    }
     return rec;
   });
   // ライン上を流れているアイテムも保存(リロードで消えるバグの修正)
@@ -2010,6 +2228,9 @@ function init() {
         if (md.st) mm.storage = md.st;
         if (md.buf) mm.buffer = md.buf;
         if (md.pr) mm.processing = md.pr; // 精錬炉の処理中アイテムを復元
+        if (md.cs) mm.craftStock = md.cs;
+        if (md.cr) mm.craftRecipe = AUTOCRAFT_RECIPES.find(r => r.id === md.cr) || null;
+        if (md.cp) mm.craftProgress = md.cp;
       }
     }
     // ライン上のアイテムを復元(移動中だったものは行き先のマスに配置)
@@ -2017,13 +2238,14 @@ function init() {
       const m = machines.get(key(d.x, d.z));
       if (!m) continue;
       const ingot = !!d.i;
-      if ((m.type === 'conveyor' || m.type === 'filterConveyor' || m.type === 'splitter') && !m.item) {
+      if ((m.type === 'conveyor' || m.type === 'fastConveyor' || m.type === 'filterConveyor' || m.type === 'splitter') && !m.item) {
         const it = spawnItem(d.o, ingot, d.x, d.z);
         items.push(it);
         m.item = it;
       } else if (m.type === 'smelter' && !ingot && m.buffer.length < 2) m.buffer.push({ oreType: d.o });
       else if (m.type === 'merger') m.buffer.push({ oreType: d.o, ingot });
       else if (m.type === 'chest') { const sk = d.o + (ingot ? '_i' : '_o'); m.storage[sk] = (m.storage[sk] || 0) + 1; }
+      else if (m.type === 'autoCrafter') { const sk = d.o + (ingot ? '_i' : '_o'); m.craftStock[sk] = (m.craftStock[sk] || 0) + 1; }
     }
     const chip = document.getElementById('money-display');
     if (chip) chip.title = '累計収益: $' + stats.earned.toLocaleString();
