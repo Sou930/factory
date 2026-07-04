@@ -52,6 +52,12 @@ const AUTOCRAFT_RECIPES = [
   { id: 'unit', name: '掘削ユニット', time: 4.8, value: 320, inputs: { iron_i: 2, coal_o: 2, mithril_i: 1 } },
   { id: 'alloy', name: '高密度合金', time: 5.2, value: 460, inputs: { gold_i: 1, diamond_i: 1, ruby_i: 1 } },
 ];
+/* 自動工房が受け入れる素材(いずれかのレシピで使うもののみ。不要品で在庫が詰まるのを防止) */
+const AUTOCRAFT_USABLE = (() => {
+  const s = new Set();
+  for (const r of AUTOCRAFT_RECIPES) for (const k in r.inputs) s.add(k);
+  return s;
+})();
 
 /* ---------------- 状態 ---------------- */
 let money = START_MONEY;
@@ -136,6 +142,7 @@ function sfx(name) {
     case 'error':     beep(150, 0.14, 'sawtooth', 0.11); break;
     case 'discover':  beep(523, 0.08, 'sine', 0.15); beep(659, 0.08, 'sine', 0.15, 0.08); beep(784, 0.14, 'sine', 0.15, 0.16); break;
     case 'milestone': beep(523, 0.09, 'square', 0.12); beep(659, 0.09, 'square', 0.12, 0.09); beep(784, 0.09, 'square', 0.12, 0.18); beep(1046, 0.2, 'square', 0.12, 0.27); break;
+    case 'upgrade':   beep(392, 0.07, 'square', 0.12); beep(523, 0.07, 'square', 0.12, 0.07); beep(659, 0.07, 'square', 0.12, 0.14); beep(880, 0.16, 'sine', 0.15, 0.21, 120); break;
   }
 }
 
@@ -955,9 +962,31 @@ function consumeStock(stock, needs) {
 function findChestUpgradeRule(targetType) {
   return CHEST_UPGRADE_RULES.find(r => r.from === targetType) || null;
 }
+/* チェストの正面にいる「アップグレード可能な機械」と対応ルールを返す */
+function chestUpgradeTarget(chest) {
+  const tx = chest.gx + DIRS[chest.dir].x;
+  const tz = chest.gz + DIRS[chest.dir].z;
+  const target = machines.get(key(tx, tz));
+  if (!target) return null;
+  const rule = findChestUpgradeRule(target.type);
+  if (!rule) return null;
+  return { target, rule };
+}
+/* アップグレードに使う予定の素材は自動排出・売却から保護する(素材が流出して貯まらないバグの修正) */
+function chestReservedNeeds(chest) {
+  const info = chestUpgradeTarget(chest);
+  return info ? info.rule.needs : null;
+}
+/* 必要素材の進捗を「鉄インゴット 12/20」形式で整形 */
+function formatNeedsProgress(needs, stock) {
+  return Object.keys(needs).map(k => formatStockKey(k) + ' ' + Math.min(stock[k] || 0, needs[k]) + '/' + needs[k]).join(' ・ ');
+}
 function replaceMachineType(m, newType) {
   if (!m || m.type === newType || !MESH_BUILDERS[newType]) return false;
-  if (m.item || m.incoming > 0 || m.processing) return false;
+  if (m.item || m.incoming > 0) return false;
+  // 精錬炉→自動工房は処理中/待ち鉱石を在庫へ引き継げるので許可。それ以外は処理中のアップグレードを不可に
+  const smelterToCrafter = m.type === 'smelter' && newType === 'autoCrafter';
+  if ((m.processing || (m.buffer && m.buffer.length > 0)) && !smelterToCrafter) return false;
   const oldMesh = m.mesh;
   const nm = MESH_BUILDERS[newType]();
   nm.position.copy(oldMesh.position);
@@ -971,6 +1000,14 @@ function replaceMachineType(m, newType) {
   if (newType === 'fastConveyor') applyFastConveyorTint(m.mesh);
   if (newType === 'autoCrafter') {
     m.craftStock = m.craftStock || {};
+    // 精錬炉の待ち行列・処理中の鉱石を自動工房の在庫へ引き継ぎ(素材ロス防止)
+    if (m.buffer && m.buffer.length > 0) {
+      for (const b of m.buffer) { const sk = b.oreType + '_o'; m.craftStock[sk] = (m.craftStock[sk] || 0) + 1; }
+    }
+    if (m.processing) { const sk = m.processing.oreType + '_o'; m.craftStock[sk] = (m.craftStock[sk] || 0) + 1; }
+    m.buffer = [];
+    m.processing = null;
+    m.progress = 0;
     m.craftRecipe = null;
     m.craftProgress = 0;
   }
@@ -981,16 +1018,19 @@ function replaceMachineType(m, newType) {
   return true;
 }
 function tryChestUpgrade(chest) {
-  const tx = chest.gx + DIRS[chest.dir].x;
-  const tz = chest.gz + DIRS[chest.dir].z;
-  const target = machines.get(key(tx, tz));
-  if (!target) return null;
-  const rule = findChestUpgradeRule(target.type);
-  if (!rule) return null;
+  const info = chestUpgradeTarget(chest);
+  if (!info) return null;
+  const { target, rule } = info;
   if (!hasStock(chest.storage, rule.needs)) return { ok: false, rule };
   if (!replaceMachineType(target, rule.to)) return { ok: false, rule };
   consumeStock(chest.storage, rule.needs);
-  toast('⬆️ チェスト素材で ' + toolLabel(rule.to) + ' にアップグレード!', 'good');
+  sfx('upgrade');
+  spawnFloater('⬆️' + rule.label, target.mesh.position.clone().add(new THREE.Vector3(0, 1.8, 0)), '#9fe4ff');
+  const fxPos = target.mesh.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+  for (let i = 0; i < 8; i++) {
+    spawnParticle('spark', fxPos, { life: 0.55, scale: 0.18, vel: new THREE.Vector3((Math.random() - 0.5) * 2.0, 1.4 + Math.random() * 1.2, (Math.random() - 0.5) * 2.0), grow: 0.5 });
+  }
+  toast('⬆️ チェスト素材で ' + toolLabel(rule.from) + ' → ' + toolLabel(rule.to) + ' にアップグレード!', 'good');
   return { ok: true, rule, target };
 }
 
@@ -1174,7 +1214,13 @@ function canAccept(m, it, fromGx, fromGz) {
   if (m.type === 'conveyor' || m.type === 'fastConveyor' || m.type === 'splitter') return !m.item;
   if (m.type === 'filterConveyor') return !m.item;
   if (m.type === 'smelter') return !it.ingot && m.buffer.length + m.incoming < 2; // 移動中の分も数えて溢れ防止
-  if (m.type === 'autoCrafter') return stockTotal(m.craftStock || {}) + m.incoming < 40;
+  if (m.type === 'autoCrafter') {
+    const sk = it.oreType + (it.ingot ? '_i' : '_o');
+    if (!AUTOCRAFT_USABLE.has(sk)) return false; // レシピに使わない素材は受け取らない
+    // 同一素材の溢れ防止: 1種類につき最大12個までストック(他の素材の保管枚を確保)
+    if (((m.craftStock || {})[sk] || 0) >= 12) return false;
+    return stockTotal(m.craftStock || {}) + m.incoming < 40;
+  }
   if (m.type === 'merger') return m.buffer.length + m.incoming < 4;
   if (m.type === 'chest') return chestTotal(m) + m.incoming < m.cap;
   if (m.type === 'seller') return true;
@@ -1521,7 +1567,13 @@ function updateMachines(dt) {
         m.timer = 0;
         const upgraded = tryChestUpgrade(m);
         if (upgraded && upgraded.ok) continue;
-        const stockKey = Object.keys(m.storage).find(k => m.storage[k] > 0);
+        // アップグレード予定の素材は自動排出から保護(必要数まで確保してから排出する)
+        const reserved = chestReservedNeeds(m);
+        const stockKey = Object.keys(m.storage).find(k => {
+          if (m.storage[k] <= 0) return false;
+          if (reserved && reserved[k]) return m.storage[k] > reserved[k]; // 必要数を超えた余剰分のみ排出
+          return true;
+        });
         if (stockKey) {
           const outKey = key(m.gx + DIRS[m.dir].x, m.gz + DIRS[m.dir].z);
           const target = machines.get(outKey);
@@ -1694,20 +1746,35 @@ function pickTile(clientX, clientY) {
 }
 
 function cashOutChest(m) {
-  let total = 0, count = 0;
+  // アップグレード予定の素材は売却から保護(必要数までは残して余剰分だけ売る)
+  const reserved = chestReservedNeeds(m);
+  let total = 0, count = 0, kept = 0;
+  const remain = {};
   for (const k in m.storage) {
+    let qty = m.storage[k];
+    if (reserved && reserved[k]) {
+      const keep = Math.min(qty, reserved[k]);
+      if (keep > 0) { remain[k] = keep; kept += keep; qty -= keep; }
+    }
+    if (qty <= 0) continue;
     const ingot = k.endsWith('_i');
     const oreType = k.slice(0, -2);
     const v = ingot ? ORES[oreType].ingotValue : ORES[oreType].oreValue;
-    total += v * m.storage[k];
-    count += m.storage[k];
+    total += v * qty;
+    count += qty;
   }
-  if (count === 0) { toast('チェストは空っぽ', 'error'); return; }
-  m.storage = {};
+  if (count === 0) {
+    if (kept > 0) {
+      const info = chestUpgradeTarget(m);
+      toast('🔒 ' + (info ? info.rule.label : 'アップグレード') + '用の素材を確保中: ' + formatNeedsProgress(reserved, m.storage), 'good');
+    } else toast('チェストは空っぽ', 'error');
+    return;
+  }
+  m.storage = remain;
   earn(total);
   sfx('sell');
   spawnFloater('+$' + total, m.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0)), '#7dffa8');
-  toast('📦 チェストの中身を売却!(' + count + '個 → $' + total + ')', 'good');
+  toast('📦 チェストの中身を売却!(' + count + '個 → $' + total + ')' + (kept > 0 ? ' 🔒素材' + kept + '個は確保' : ''), 'good');
 }
 
 
@@ -1796,7 +1863,13 @@ function onTap(clientX, clientY) {
 
   if (tool === 'dig') {
     if (existing) {
-      if (existing.type === 'chest') { cashOutChest(existing); return; }
+      if (existing.type === 'chest') {
+        // アップグレード対象が正面にある場合は進捗も確認できる
+        const info = chestUpgradeTarget(existing);
+        if (info) toast('⬆️ ' + info.rule.label + ' 化進捗: ' + formatNeedsProgress(info.rule.needs, existing.storage), 'good');
+        cashOutChest(existing);
+        return;
+      }
       // 「掘る」ツールで機械をタップすると状態を確認できる(完成度UP)
       if (existing.type === 'drill' || existing.type === 'drill2') {
         const hasOre = t.ore && ORES[t.ore.type].depth === t.depth;
@@ -1810,8 +1883,12 @@ function onTap(clientX, clientY) {
       }
       if (existing.type === 'merger') { toast('🔗 合流待ち: ' + existing.buffer.length + '個', 'good'); return; }
       if (existing.type === 'autoCrafter') {
-        const crafting = existing.craftRecipe ? (existing.craftRecipe.name + ' ' + Math.floor((existing.craftProgress / existing.craftRecipe.time) * 100) + '%') : '待機中';
-        toast('🏭 自動工房: ' + crafting + ' / 在庫 ' + stockTotal(existing.craftStock) + '個', 'good');
+        const crafting = existing.craftRecipe ? ('🔨 ' + existing.craftRecipe.name + ' ' + Math.floor((existing.craftProgress / existing.craftRecipe.time) * 100) + '% (+$' + existing.craftRecipe.value + ')') : '待機中';
+        const stockKeys = Object.keys(existing.craftStock || {});
+        const stockText = stockKeys.length ? stockKeys.map(k => formatStockKey(k) + '×' + existing.craftStock[k]).join(' ') : 'なし';
+        const nextRecipe = !existing.craftRecipe ? AUTOCRAFT_RECIPES.find(r => hasStock(existing.craftStock || {}, r.inputs)) : null;
+        const powered = hasPowerFor(existing);
+        toast((powered ? '🏭' : '⚠️電力不足') + ' 自動工房: ' + crafting + (nextRecipe ? ' / 次: ' + nextRecipe.name : '') + ' / 在庫: ' + stockText, powered ? 'good' : 'error');
         return;
       }
       if (existing.type === 'generator') { toast('⚡ 発電中: +' + POWER_OUTPUT.generator + ' 電力 / 範囲 ' + POWER_RANGE + 'マス', 'good'); return; }
