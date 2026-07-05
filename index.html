@@ -36,6 +36,9 @@
     <button id="btn-save" class="hud-btn" title="セーブ" aria-label="セーブ">
       <i class="fa-solid fa-floppy-disk"></i>
     </button>
+    <button id="btn-upgrade" class="hud-btn" title="一括アップグレード" aria-label="一括アップグレード">
+      <i class="fa-solid fa-diagram-project"></i>
+    </button>
     <button id="btn-help" class="hud-btn" title="ヘルプ" aria-label="ヘルプ">
       <i class="fa-solid fa-circle-question"></i>
     </button>
@@ -113,11 +116,36 @@
   <button data-action="rotate">↻<span>回転</span></button>
   <button data-action="move">↔<span>移動</span></button>
   <button data-action="delete">🧨<span>削除</span></button>
+  <button data-action="recipe" class="hidden">📜<span>レシピ</span></button>
   <button data-action="close">×<span>閉じる</span></button>
 </div>
 
 <!-- ===== トースト通知 ===== -->
 <div id="toast-area" aria-live="polite"></div>
+
+<!-- ===== 一括アップグレードツリー ===== -->
+<div id="upgrade-modal" class="hidden" role="dialog" aria-label="一括アップグレード">
+  <div id="upgrade-panel">
+    <h1>🌲 アップグレードツリー</h1>
+    <p id="upgrade-stock-summary">素材を集めて、選んだ系統の機械を一括強化できます。</p>
+    <div id="upgrade-tree-list"></div>
+    <div id="upgrade-actions">
+      <button id="btn-close-upgrade">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 自動工房レシピ選択 ===== -->
+<div id="recipe-modal" class="hidden" role="dialog" aria-label="レシピ選択">
+  <div id="recipe-panel">
+    <h1>🏭 レシピ選択</h1>
+    <p id="recipe-target-label"></p>
+    <div id="recipe-list"></div>
+    <div id="recipe-actions">
+      <button id="btn-close-recipe">閉じる</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===== ヘルプモーダル ===== -->
 <div id="help-modal" class="hidden" role="dialog" aria-label="遊び方">
@@ -154,8 +182,8 @@
       <p>
         <b>🔀 分岐器</b>:背面から来たアイテムを正面・左・右の3方向に順番に振り分ける<br>
         <b>🔗 合流機</b>:背面・左・右から来たアイテムを1本の出力にまとめる<br>
-        <b>📦 チェスト</b>:アイテムを保管(最大300個)。<b>「掘る」ツール</b>でタップすると中身をまとめて売却できる。向いている方向に少しずつ自動排出もされる<br>
-        <b>🏭 自動工房</b>:複数種類の鉱石/インゴットを受け取り、レシピ合成して出荷(収益化)する。レシピに使わない素材は受け取らないのでラインが詰まらない<br>
+        <b>📦 チェスト</b>:アイテムを保管(最大300個)。右上の<b>🌲アップグレード</b>ボタンから、集めた素材を使って選択した機械系統を一括アップグレードできる。<b>「掘る」ツール</b>でタップすると中身をまとめて売却できる。向いている方向に少しずつ自動排出もされる<br>
+        <b>🏭 自動工房</b>:複数種類の鉱石/インゴットを受け取り、レシピを選択して加工品を出荷できる(長押しメニューの「レシピ」から設定)<br>
         <b>🎯 フィルター</b>:指定した鉱石は正面へ、不一致アイテムは左右へ分岐する3方向ソーター。下の「品目」ボタンで対象を選べる<br>
         <b>⚡ 発電機</b>:12電力を供給(供給範囲あり)。ドリルは2、ドリルMk2は3、精錬炉は4、自動工房は6電力を消費する
       </p>
