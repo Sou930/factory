@@ -148,15 +148,51 @@ function sfx(name) {
 
 /* ---------------- Three.js 基本 ---------------- */
 const canvas = document.getElementById('game-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 const MAX_PIXEL_RATIO = window.matchMedia('(max-width: 700px)').matches ? 1.5 : 2;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+let basePixelRatio = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
+let adaptivePixelRatio = basePixelRatio;
+const MAX_ANISOTROPY = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+renderer.setPixelRatio(adaptivePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x10192e);
 scene.fog = new THREE.Fog(0x10192e, 120, 430);
+
+(function setupEnvironment() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const ctx = c.getContext('2d');
+
+  const sky = ctx.createLinearGradient(0, 0, 0, c.height);
+  sky.addColorStop(0, '#8fbfff');
+  sky.addColorStop(0.45, '#5f87bf');
+  sky.addColorStop(0.72, '#2a3552');
+  sky.addColorStop(1, '#1a1310');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const sunGlow = ctx.createRadialGradient(c.width * 0.72, c.height * 0.32, 6, c.width * 0.72, c.height * 0.32, 130);
+  sunGlow.addColorStop(0, 'rgba(255,244,210,0.95)');
+  sunGlow.addColorStop(0.2, 'rgba(255,216,160,0.58)');
+  sunGlow.addColorStop(1, 'rgba(255,190,120,0.02)');
+  ctx.fillStyle = sunGlow;
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const envMap = new THREE.CanvasTexture(c);
+  envMap.mapping = THREE.EquirectangularReflectionMapping;
+  envMap.colorSpace = THREE.SRGBColorSpace;
+  envMap.anisotropy = MAX_ANISOTROPY;
+  envMap.generateMipmaps = true;
+  envMap.minFilter = THREE.LinearMipmapLinearFilter;
+  envMap.magFilter = THREE.LinearFilter;
+  scene.environment = envMap;
+})();
 
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 900);
 
@@ -185,15 +221,19 @@ function updateCamera(dt) {
 }
 
 /* ライティング */
-scene.add(new THREE.AmbientLight(0x8899bb, 0.85));
-const sun = new THREE.DirectionalLight(0xfff2d8, 1.25);
+scene.add(new THREE.AmbientLight(0x7789a8, 0.45));
+const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x2a2319, 0.56);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.42);
 sun.position.set(100, 120, 65);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.00022;
+sun.shadow.normalBias = 0.02;
 const scam = sun.shadow.camera;
 scam.left = -145; scam.right = 145; scam.top = 145; scam.bottom = -145; scam.far = 420;
 scene.add(sun);
-const fill = new THREE.DirectionalLight(0x5f7fff, 0.3);
+const fill = new THREE.DirectionalLight(0x5f7fff, 0.36);
 fill.position.set(-28, 30, -32);
 scene.add(fill);
 
@@ -342,8 +382,8 @@ function refreshTile(gx, gz) {
   if (exposed && !machines.has(key(gx, gz))) {
     const g = new THREE.Group();
     const spec = ORES[t.ore.type];
-    const mat = new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.35, metalness: 0.6, emissive: spec.color, emissiveIntensity: 0.12 });
-    const rock = new THREE.DodecahedronGeometry(0.22);
+    const mat = enhanceMaterial(new THREE.MeshStandardMaterial({ color: spec.color, roughness: 0.32, metalness: 0.65, emissive: spec.color, emissiveIntensity: 0.12 }));
+    const rock = new THREE.IcosahedronGeometry(0.22, 1);
     for (let i = 0; i < 4; i++) {
       const m = new THREE.Mesh(rock, mat);
       m.position.set((Math.random() - .5) * 1.1, 0.12, (Math.random() - .5) * 1.1);
@@ -372,8 +412,16 @@ function mulberry32(a) {
 
 /* ---------------- 共有マテリアル/テクスチャ(メモリ節約&統一感のあるビジュアル) ---------------- */
 const sharedMats = {};
+function enhanceMaterial(mat) {
+  if (!mat) return mat;
+  if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial || mat.isMeshPhongMaterial) {
+    mat.envMapIntensity = Math.max(mat.envMapIntensity || 0, 0.9);
+    mat.dithering = true;
+  }
+  return mat;
+}
 function sharedMat(key, factory) {
-  if (!sharedMats[key]) sharedMats[key] = factory();
+  if (!sharedMats[key]) sharedMats[key] = enhanceMaterial(factory());
   return sharedMats[key];
 }
 function makeCanvasTexture(draw, w, h) {
@@ -382,6 +430,11 @@ function makeCanvasTexture(draw, w, h) {
   const ctx = c.getContext('2d');
   draw(ctx, c.width, c.height);
   const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = MAX_ANISOTROPY;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   return tex;
 }
@@ -437,8 +490,8 @@ function particleMat(type) {
 const GEO_DRILL_LEG    = new THREE.CylinderGeometry(0.08, 0.1, 0.3, 6);
 const GEO_DRILL_PIPE   = new THREE.CylinderGeometry(0.06, 0.06, 1.0, 6);
 const GEO_DRILL_PISTON = new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8);
-const GEO_DRILL_LIGHT  = new THREE.SphereGeometry(0.08, 8, 8);
-const GEO_INDICATOR    = new THREE.SphereGeometry(0.1, 8, 8);
+const GEO_DRILL_LIGHT  = new THREE.SphereGeometry(0.08, 14, 14);
+const GEO_INDICATOR    = new THREE.SphereGeometry(0.1, 14, 14);
 
 function buildDrillMesh(tier) {
   const g = new THREE.Group();
@@ -901,18 +954,18 @@ function toolLabel(t) {
 }
 
 /* ---------------- アイテム ---------------- */
-const itemGeoOre = new THREE.DodecahedronGeometry(0.24);
+const itemGeoOre = new THREE.IcosahedronGeometry(0.24, 1);
 const itemGeoIngot = new THREE.BoxGeometry(0.42, 0.2, 0.26);
 const itemMats = {};
 function itemMaterial(type, ingot) {
   const k = type + (ingot ? '_i' : '');
   if (!itemMats[k]) {
     const spec = ORES[type];
-    itemMats[k] = new THREE.MeshStandardMaterial({
+    itemMats[k] = enhanceMaterial(new THREE.MeshStandardMaterial({
       color: ingot ? spec.ingotColor : spec.color,
-      metalness: ingot ? 0.9 : 0.5, roughness: ingot ? 0.25 : 0.5,
+      metalness: ingot ? 0.9 : 0.55, roughness: ingot ? 0.2 : 0.42,
       emissive: ingot ? spec.ingotColor : 0x000000, emissiveIntensity: ingot ? 0.15 : 0,
-    });
+    }));
   }
   return itemMats[k];
 }
@@ -2440,21 +2493,53 @@ function init() {
   onResize();
 }
 
-function onResize() {
+function applyRendererSize() {
   const w = window.innerWidth, h = window.innerHeight;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.matchMedia('(max-width: 700px)').matches ? 1.5 : 2));
-  renderer.setSize(w, h);
+  renderer.setPixelRatio(adaptivePixelRatio);
+  renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
+
+function onResize() {
+  const maxPr = window.matchMedia('(max-width: 700px)').matches ? 1.5 : 2;
+  basePixelRatio = Math.min(window.devicePixelRatio, maxPr);
+  adaptivePixelRatio = Math.min(adaptivePixelRatio, basePixelRatio);
+  applyRendererSize();
+}
 window.addEventListener('resize', onResize);
+
+let fpsEMA = 60;
+let qualityCooldown = 0;
+function updateAdaptiveQuality(rawDt) {
+  const fps = 1 / Math.max(rawDt, 1 / 120);
+  fpsEMA += (fps - fpsEMA) * Math.min(1, rawDt * 2.5);
+  qualityCooldown -= rawDt;
+  if (qualityCooldown > 0) return;
+
+  let next = adaptivePixelRatio;
+  if (fpsEMA < 50 && adaptivePixelRatio > 0.8) next = Math.max(0.8, adaptivePixelRatio - 0.1);
+  else if (fpsEMA > 58 && adaptivePixelRatio < basePixelRatio) next = Math.min(basePixelRatio, adaptivePixelRatio + 0.1);
+
+  if (Math.abs(next - adaptivePixelRatio) > 0.001) {
+    adaptivePixelRatio = next;
+    applyRendererSize();
+  }
+  qualityCooldown = 0.85;
+}
 
 /* ---------------- メインループ ---------------- */
 let lastT = performance.now();
+let smoothDt = 1 / 60;
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min(0.05, (now - lastT) / 1000);
+  const rawDt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
+
+  smoothDt += (rawDt - smoothDt) * Math.min(1, rawDt * 9);
+  const dt = Math.min(0.05, rawDt * 0.42 + smoothDt * 0.58);
+  updateAdaptiveQuality(rawDt);
+
   time += dt;
   updateMachines(dt);
   updateItems(dt);
