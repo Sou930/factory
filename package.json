@@ -1,0 +1,19 @@
+{
+  "name": "terraforge",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "eslint": "^9.25.1",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.5.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}
