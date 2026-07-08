@@ -2,7 +2,7 @@
    TerraForge — アンドゥ/リドゥ コマンドスタック (Phase10)
    ---------------------------------------------------------------------
    ユーザー操作(設置・撤去・掘削・盛土・回転・移動)をコマンドパターンで
-   ラップし、直近30操作までのアンドゥ/リドゥを提供する。
+   ラップし、直近10操作までのアンドゥ/リドゥを提供する。
 
    設計方針:
    - do()/undo() は state/mesh の変更のみを担当し、sfx()/toast() を直接
@@ -328,7 +328,7 @@ export class CommandStack {
     //         tryAutoConnectNeighbors, worldX, worldZ, tileTopY, yJitter, COSTS, MACHINE_DEFS,
     //         sfx, toast, spawnFloater }
     this.ctx = deps;
-    this.limit = 30;
+    this.limit = 10;
     this._undoStack = [];
     this._redoStack = [];
   }
