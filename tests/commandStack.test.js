@@ -6,7 +6,7 @@
    ユニットテスト(tests/buildDrag.test.js, tests/logistics.test.js 等)と同様に、
    実際の描画チェーンを経由しない「純粋ロジックの再現」としてテストする。
    コマンドパターンの分岐・スタック管理は src/core/CommandStack.js の実装を
-   忠実に再現している(do/undo/redo の戻り値・blocked条件・30件制限・
+   忠実に再現している(do/undo/redo の戻り値・blocked条件・10件制限・
    redoスタッククリア・BatchCmdの逆順undoロジックまで一致させる)。
    GameState / EventBus / Events は実物をそのまま使う(render依存が無いため)。
    ===================================================================== */
@@ -315,7 +315,7 @@ class CommandStack {
     this.ctx = deps;
     this.bus = bus;
     this.Events = Events;
-    this.limit = 30;
+    this.limit = 10;
     this._undoStack = [];
     this._redoStack = [];
   }
@@ -414,18 +414,18 @@ describe('CommandStack (Phase10 アンドゥ/リドゥ)', () => {
     expect(gameState.money).toBe(beforeMoney); // 返金分を差し引いて元通り
   });
 
-  /* ---- ケース(c): 30件超で古い履歴が消える ---- */
-  it('(c) 履歴が30件を超えると、古いコマンドがスタックから消える', () => {
-    for (let i = 0; i < 35; i++) {
+  /* ---- ケース(c): 10件超で古い履歴が消える ---- */
+  it('(c) 履歴が10件を超えると、古いコマンドがスタックから消える', () => {
+    for (let i = 0; i < 15; i++) {
       const gx = i % 10, gz = Math.floor(i / 10);
       stack.execute(new cmds.DigCmd(gx, gz));
     }
-    expect(stack._undoStack.length).toBe(30);
+    expect(stack._undoStack.length).toBe(10);
     // 最初の5件(i=0..4)は履歴から消え、アンドゥしても対象マスは変化しない
-    // (最も古いコマンドが押し出されているので、30回undoしてもi=5以降のみ戻る)
+    // (最も古いコマンドが押し出されているので、10回undoしてもi=5以降のみ戻る)
     let undoCount = 0;
     while (stack.undo()) undoCount++;
-    expect(undoCount).toBe(30);
+    expect(undoCount).toBe(10);
   });
 
   /* ---- ケース(d): undo後の新規操作でredoが消える ---- */
